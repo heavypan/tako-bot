@@ -33,14 +33,21 @@ function checkPermissions(member) {
   const permisos = member.permissions;
   return permisos.has('Administrator') ||
     permisos.has('ManageGuild') ||
-    permisos.has('ManageMessages'); // Modificación: Ahora incluye ManageMessages
+    permisos.has('ManageMessages'); // Ahora incluye ManageMessages
 }
 
-function enviarMensaje(member, tipo) {
+/**
+ * Función central para enviar mensajes de bienvenida/despedida.
+ * @param {GuildMember} member - El miembro que se une/va.
+ * @param {string} tipo - 'bienvenida' o 'despedida'.
+ * @param {TextChannel} [testChannel=null] - Canal opcional para enviar prueba (si no es null, ignora settings.canalId).
+ */
+function enviarMensaje(member, tipo, testChannel = null) {
   const settings = config[tipo];
-  if (!settings || !settings.canalId || !settings.embedJson) return;
-
-  const targetChannel = member.guild.channels.cache.get(settings.canalId);
+  if (!settings || !settings.embedJson) return;
+  
+  // Si estamos haciendo una prueba, usamos el canal de prueba. Si no, usamos el canal configurado.
+  const targetChannel = testChannel || (settings.canalId ? member.guild.channels.cache.get(settings.canalId) : null);
   if (!targetChannel) return;
 
   let jsonString = JSON.stringify(settings.embedJson);
@@ -56,9 +63,14 @@ function enviarMensaje(member, tipo) {
     const embedToSend = EmbedBuilder.from(embedData);
     if (!embedData.timestamp) embedToSend.setTimestamp();
     
+    // FIX DE IMAGEN AÑADIDO
+    if (embedData.image && embedData.image.url) {
+        embedToSend.setImage(embedData.image.url);
+    }
+    
     targetChannel.send({ embeds: [embedToSend] });
   } catch (error) {
-    console.error(`Error al parsear el embed de ${tipo}:`, error);
+    console.error(`Error al parsear o enviar el embed de ${tipo}:`, error);
   }
 }
 
@@ -112,14 +124,16 @@ client.on(Events.MessageCreate, (message) => {
     switch (command) {
         case 'test1': 
         case 'testwelcome':
-            enviarMensaje(message.member, 'bienvenida');
-            message.channel.send("✅ Prueba de **Bienvenida** enviada.");
+            // ENVÍA PRUEBA AL CANAL DONDE SE EJECUTÓ EL COMANDO
+            enviarMensaje(message.member, 'bienvenida', message.channel);
+            message.channel.send("✅ Prueba de **Bienvenida** enviada al canal actual.");
             break;
 
         case 'test2': 
         case 'testbye':
-            enviarMensaje(message.member, 'despedida');
-            message.channel.send("✅ Prueba de **Despedida** enviada.");
+            // ENVÍA PRUEBA AL CANAL DONDE SE EJECUTÓ EL COMANDO
+            enviarMensaje(message.member, 'despedida', message.channel);
+            message.channel.send("✅ Prueba de **Despedida** enviada al canal actual.");
             break;
             
         case 'testembed':
@@ -131,7 +145,7 @@ client.on(Events.MessageCreate, (message) => {
             const embedToSend = EmbedBuilder.from(testEmbedJson);
             
             message.channel.send({ embeds: [embedToSend] })
-                .then(() => message.channel.send("✅ Prueba de **Embed genérico** enviada."));
+                .then(() => message.channel.send("✅ Prueba de **Embed genérico** enviada al canal actual."));
             break;
         
         case 'showconfig':
@@ -164,8 +178,9 @@ client.on(Events.MessageCreate, (message) => {
 
             saveConfig('bienvenida', { canalId: channelId, embedJson: validatedJson });
             
-            message.reply(`✅ **Bienvenida Actualizada.** Enviando prueba a <#${channelId}>.`);
-            enviarMensaje(message.member, 'bienvenida');
+            message.reply(`✅ **Bienvenida Actualizada.** Enviando prueba al canal actual.`);
+            // ENVÍA PRUEBA AL CANAL DONDE SE EJECUTÓ EL COMANDO
+            enviarMensaje(message.member, 'bienvenida', message.channel); 
 
         } catch (error) {
             message.channel.send(`❌ Error: El JSON no es válido. Error: ${error.message}`);
@@ -197,8 +212,9 @@ client.on(Events.MessageCreate, (message) => {
 
             saveConfig('despedida', { canalId: channelId, embedJson: validatedJson });
             
-            message.reply(`✅ **Despedida Actualizada.** Enviando prueba a <#${channelId}>.`);
-            enviarMensaje(message.member, 'despedida');
+            message.reply(`✅ **Despedida Actualizada.** Enviando prueba al canal actual.`);
+            // ENVÍA PRUEBA AL CANAL DONDE SE EJECUTÓ EL COMANDO
+            enviarMensaje(message.member, 'despedida', message.channel); 
 
         } catch (error) {
             message.channel.send(`❌ Error: El JSON no es válido. Error: ${error.message}`);
@@ -235,6 +251,12 @@ client.on(Events.MessageCreate, (message) => {
                 
                 if (embedData.title || embedData.description || embedData.fields || embedData.author) {
                     const embedToSend = EmbedBuilder.from(embedData);
+                    
+                    // FIX DE IMAGEN AÑADIDO
+                    if (embedData.image && embedData.image.url) {
+                        embedToSend.setImage(embedData.image.url);
+                    }
+                    
                     messageOptions = { embeds: [embedToSend] };
                     isEmbed = true;
                 }
