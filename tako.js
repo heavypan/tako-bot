@@ -142,7 +142,6 @@ client.on(Events.MessageCreate, async (message) => {
       case 'testbye': {
         const tipo = command === 'testwelcome' ? 'bienvenida' : 'despedida';
         enviarMensaje(message.member, tipo, message.channel);
-        message.react('✅');
         break;
       }
 
@@ -246,3 +245,4 @@ app.get('/', (req,res)=>res.status(200).send('Bot de Discord funcionando.'));
 app.listen(port,'0.0.0.0',()=>log(`Web escuchando en puerto ${port}`));
 
 client.login(TOKEN);
+
