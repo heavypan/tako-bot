@@ -11,7 +11,7 @@ let config = {};
 try {
   config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
 } catch (error) {
-  console.error('Error al cargar config.json.');
+  console.error('Error al cargar config.json. Asegúrate de que el archivo existe.');
   process.exit(1);
 }
 
@@ -26,11 +26,14 @@ const enlaces =
   ` ${ZWS.repeat(2)} [**Chat**](https://discord.com/channels/1432536513370919057/1432536515237380197)`;
 
 // FUNCIONES
+/**
+ * Verifica si el miembro tiene permisos de gestión (Administrador, Gestionar Servidor o Gestionar Mensajes).
+ */
 function checkPermissions(member) {
   const permisos = member.permissions;
   return permisos.has('Administrator') ||
     permisos.has('ManageGuild') ||
-    member.roles.cache.some(r => ['Mod', 'Admin', 'Owner'].includes(r.name));
+    permisos.has('ManageMessages'); // Modificación: Ahora incluye ManageMessages
 }
 
 function enviarMensaje(member, tipo) {
@@ -79,7 +82,7 @@ client.once(Events.ClientReady, () => {
   console.log(`Bot encendido como ${client.user.tag}`);
 });
 
-// EVENTOS
+// EVENTOS AUTOMÁTICOS
 client.on(Events.GuildMemberAdd, (member) => {
   enviarMensaje(member, 'bienvenida');
 });
@@ -93,14 +96,16 @@ client.on(Events.MessageCreate, (message) => {
     if (message.author.bot) return;
 
     const prefix = '!';
-    if (!message.content.startsWith(prefix)) return;
+    if (!message.content.startsWith(prefix)) return; // Ignora cualquier mensaje que no sea un comando.
 
     const args = message.content.slice(prefix.length).trim().split(/\s+/);
     const command = args.shift().toLowerCase();
 
-    const isAdminCommand = ['setwelcome', 'setbye', 'test1', 'test2', 'testembed', 'showconfig'].includes(command);
+    // Comandos que requieren permisos de Moderador/Admin
+    const isAdminCommand = ['setwelcome', 'setbye', 'test1', 'test2', 'testembed', 'showconfig', 'send'].includes(command);
+    
     if (isAdminCommand && !checkPermissions(message.member)) {
-        return message.reply(`❌ No tienes permisos para usar \`!${command}\`.`);
+        return; // Silencio: si no tiene permisos, simplemente no hace nada.
     }
     
     // PRUEBAS Y UTILIDADES
@@ -203,7 +208,7 @@ client.on(Events.MessageCreate, (message) => {
 
     // COMANDO send
     if (command.startsWith('send')) {
-        if (!checkPermissions(message.member)) return message.reply("❌ No tienes permisos para usar este bot.");
+        // La verificación de permisos se hizo al inicio del MessageCreate, si llegó aquí, es un Admin.
         
         let channelId = args[0];
         if (channelId && channelId.startsWith('<#') && channelId.endsWith('>')) {
