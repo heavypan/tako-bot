@@ -12,7 +12,7 @@ function log(msg) {
   console.log(`[${time}] ${msg}`);
 }
 
-// === CONFIGURACIÓN EN MEMORIA ===
+// === CONFIGURACIÓN EN MEMORIA (NO EN ARCHIVO) ===
 let config = {};
 try {
   if (process.env.BOT_CONFIG) {
@@ -98,7 +98,7 @@ function enviarMensaje(member, tipo, testChannel = null) {
   if (!embedToSend) return;
 
   if (!embedToSend.data.timestamp) embedToSend.setTimestamp();
-  targetChannel.send({ embeds: [embedToSend] }).catch(err => log(`Error al enviar mensaje: ${err.message}`));
+  targetChannel.send({ embeds: [embedToSend] });
 }
 
 // === CLIENTE DISCORD ===
@@ -111,14 +111,16 @@ const client = new Client({
   ],
 });
 
-client.once(Events.ClientReady, () => log(`Bot iniciado como ${client.user.tag}`));
+client.once(Events.ClientReady, () => {
+  log(`Bot iniciado como ${client.user.tag}`);
+});
 
 // === EVENTOS AUTOMÁTICOS ===
-client.on(Events.GuildMemberAdd, member => enviarMensaje(member, 'bienvenida'));
-client.on(Events.GuildMemberRemove, member => enviarMensaje(member, 'despedida'));
+client.on(Events.GuildMemberAdd, (member) => enviarMensaje(member, 'bienvenida'));
+client.on(Events.GuildMemberRemove, (member) => enviarMensaje(member, 'despedida'));
 
 // === COMANDOS ===
-client.on(Events.MessageCreate, async message => {
+client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot || !message.content.startsWith(prefix)) return;
 
   const args = message.content.slice(prefix.length).trim().split(/\s+/);
@@ -136,11 +138,12 @@ client.on(Events.MessageCreate, async message => {
     'checkjson',
   ];
 
-  if (adminCommands.includes(command) && !checkPermissions(message.member)) return;
+  if (adminCommands.includes(command) && !checkPermissions(message.member))
+    return message.reply('❌ No tienes permisos para usar este comando.');
 
   try {
     switch (command) {
-      // # Test de bienvenida y despedida
+      // # TEST MESSAGES
       case 'testwelcome':
       case 'testbye': {
         const tipo = command === 'testwelcome' ? 'bienvenida' : 'despedida';
@@ -148,87 +151,116 @@ client.on(Events.MessageCreate, async message => {
         break;
       }
 
-      // # Test embed simple
       case 'testembed': {
-        const testEmbed = { title: 'Prueba de Embed', description: 'Embed de prueba', color: 3447003 };
+        const testEmbed = {
+          title: 'Prueba de Embed',
+          description: 'Embed de prueba enviado con !testembed',
+          color: 3447003,
+        };
         await message.channel.send({ embeds: [EmbedBuilder.from(testEmbed)] });
         break;
       }
 
-      // # Mostrar configuración
+      // # MOSTRAR CONFIG
       case 'showconfig':
         message.channel.send(`\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\``);
         break;
 
-      // # Configurar bienvenida o despedida
+      // # SET WELCOME / BYE
       case 'setwelcome':
       case 'setbye': {
         const key = command === 'setwelcome' ? 'bienvenida' : 'despedida';
-        let channelId = args[0]?.replace(/[<#>]/g, '');
+        let channelId = args[0];
+        if (channelId?.startsWith('<#') && channelId.endsWith('>')) channelId = channelId.slice(2, -1);
+
         const jsonText = message.content.slice(command.length + 2 + (args[0]?.length || 0)).trim();
-        if (!channelId || !jsonText) return message.reply(`Uso: !${command} #canal <JSON de Embed>`);
+        if (!channelId || !jsonText)
+          return message.reply(`Uso: \`!${command} #canal <JSON de Embed>\``);
 
         const targetChannel = message.guild.channels.cache.get(channelId);
         if (!targetChannel) return message.reply('Canal inválido.');
 
         try {
-          const parsed = JSON.parse(jsonText.replace(/```json|```/g, '').trim());
-          if (!parsed.embeds || !Array.isArray(parsed.embeds)) return message.reply('El JSON debe contener un array "embeds".');
+          const jsonString = jsonText.replace(/```json|```/g, '').trim();
+          const parsed = JSON.parse(jsonString);
+          if (!parsed.embeds || !Array.isArray(parsed.embeds))
+            return message.reply('El JSON debe contener un array llamado "embeds".');
+
           saveConfig(key, { canalId: channelId, embedJson: parsed });
           message.reply(`${key} configurada correctamente.`);
           enviarMensaje(message.member, key, message.channel);
-        } catch (err) {
-          message.reply(`Error en el JSON: ${err.message}`);
+        } catch (error) {
+          message.reply(`Error en el JSON: ${error.message}`);
         }
         break;
       }
 
-      // # Enviar mensaje normal o embed
+      // # SEND MESSAGE (TEXTO O EMBED)
       case 'send': {
-        let channelId = args[0]?.replace(/[<#>]/g, '');
+        let channelId = args[0];
+        if (channelId?.startsWith('<#') && channelId.endsWith('>')) channelId = channelId.slice(2, -1);
+
         const targetChannel = message.guild.channels.cache.get(channelId);
+        if (!targetChannel) return message.reply('Canal inválido.');
+
         const content = message.content.slice(command.length + 2 + (args[0]?.length || 0)).trim();
-        if (!targetChannel || !content) return message.reply('Uso: `!send #canal <mensaje o JSON de embed>`');
+        if (!content) return message.reply('Uso: `!send #canal <mensaje o JSON de embed>`');
 
         try {
-          let messageOptions = { content };
+          await message.delete().catch(() => {});
+
+          let messageOptions;
           if (content.startsWith('{') && content.endsWith('}')) {
             const parsed = JSON.parse(content.replace(/```json|```/g, '').trim());
-            const embedFinal = convertirDiscohook(parsed, message.member);
-            if (embedFinal) messageOptions = { embeds: [embedFinal] };
+            if (parsed.embeds && Array.isArray(parsed.embeds) && parsed.embeds.length > 0) {
+              const embedFinal = convertirDiscohook(parsed, message.member);
+              messageOptions = embedFinal ? { embeds: [embedFinal] } : { content: '❌ Embed inválido.' };
+            } else {
+              messageOptions = { content: '❌ JSON no tiene embeds.' };
+            }
+          } else {
+            messageOptions = { content };
           }
+
           await targetChannel.send(messageOptions);
-        } catch (err) {
-          log(`Error al enviar !send: ${err.message}`);
+        } catch (error) {
+          message.reply(`Error al enviar: ${error.message}`);
         }
         break;
       }
 
-      // # Estado / ayuda
+      // # STATUS / HELP
       case 'status':
       case 'help': {
         const statusMsg =
           '**Comandos disponibles:**\n' +
           '`!setwelcome`, `!setbye`, `!testwelcome`, `!testbye`, `!testembed`, `!showconfig`, `!send`, `!checkjson`\n\n' +
           '**Configuraciones actuales:**\n' +
-          Object.entries(config).map(([k, v]) => `• ${k}: <#${v.canalId || 'sin canal'}>`).join('\n');
+          Object.entries(config)
+            .map(([k, v]) => `• ${k}: <#${v.canalId || 'sin canal'}>`)
+            .join('\n');
         message.channel.send(statusMsg);
         break;
       }
 
-      // # Revisar JSONs guardados
+      // # CHECK JSON
       case 'checkjson': {
         if (Object.keys(config).length === 0) return message.reply('No hay configuraciones guardadas.');
         let report = '**Revisión de JSONs:**\n';
         for (const [tipo, data] of Object.entries(config)) {
           try {
             const embed = data.embedJson?.embeds?.[0];
-            if (!embed) { report += `• ${tipo}: ❌ No tiene embeds válidos.\n`; continue; }
+            if (!embed) {
+              report += `• ${tipo}: ❌ No tiene embeds válidos.\n`;
+              continue;
+            }
             const faltantes = [];
             if (!embed.description) faltantes.push('description');
             if (!embed.color) faltantes.push('color');
             if (!embed.title && !embed.author?.name) faltantes.push('title/author');
-            report += faltantes.length ? `• ${tipo}: ⚠️ Faltan campos: ${faltantes.join(', ')}\n` : `• ${tipo}: ✅ Correcto\n`;
+            report += faltantes.length
+              ? `• ${tipo}: ⚠️ Faltan campos: ${faltantes.join(', ')}\n`
+              : `• ${tipo}: ✅ Correcto\n`;
           } catch {
             report += `• ${tipo}: ❌ Error al analizar\n`;
           }
