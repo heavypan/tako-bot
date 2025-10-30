@@ -8,53 +8,53 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const CONFIG_PATH = './config.json';
 const prefix = '!';
 
-// --- FUNCIONES AUXILIARES ---
+// # Logs con hora
 function log(msg) {
   const time = new Date().toISOString().replace('T', ' ').split('.')[0];
   console.log(`[${time}] ${msg}`);
 }
 
-// Cargar config de forma segura
+// # Cargar configuración de forma segura
 let config = {};
 try {
   if (fs.existsSync(CONFIG_PATH)) {
     config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    log('✅ Configuración cargada correctamente.');
+    log('Configuración cargada correctamente.');
   } else {
-    log('⚠️ No existe config.json, creando uno nuevo.');
+    log('No existe config.json, creando uno nuevo.');
     fs.writeFileSync(CONFIG_PATH, JSON.stringify({}, null, 2));
   }
 } catch (error) {
-  log(`❌ Error al cargar config.json: ${error.message}`);
-  config = {}; // Evita que el bot se caiga
+  log(`Error al cargar config.json: ${error.message}`);
+  config = {};
 }
 
-// Guardar config con manejo de errores
+// # Guardar configuración
 function saveConfig(key, newSettings) {
   config[key] = newSettings;
   try {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8');
-    log(`💾 Configuración de "${key}" guardada correctamente.`);
+    log(`Configuración de "${key}" guardada correctamente.`);
   } catch (error) {
-    log(`❌ Error al guardar configuración: ${error.message}`);
+    log(`Error al guardar configuración: ${error.message}`);
   }
 }
 
-// --- CONSTANTES VISUALES ---
+// === CONSTANTES VISUALES ===
 const EMOTRANS = '<:cosotrans:1432794205884911788>';
 const ZWS = '⠀';
-const lineaDecorativa = ` ${ZWS}✨⁺.｡°${EMOTRANS} + . ° ﹒✨⁺.｡°${EMOTRANS} ${ZWS}\n`;
+const lineaDecorativa = ` ${ZWS}✨⁺.｡°${EMOTRANS} + . ° ﹒✨⁺.｡°${EMOTRANS} ${ZWS}\\n`;
 const enlaces =
   `${ZWS} [**Reglas**](https://discord.com/channels/1432536513370919057/1432536515237380201)` +
   ` ${ZWS.repeat(2)} [**Anuncios**](https://discord.com/channels/1432536513370919057/1432536515237380197)` +
   ` ${ZWS.repeat(2)} [**Chat**](https://discord.com/channels/1432536513370919057/1432536515237380197)`;
 
-// --- PERMISOS ---
+// === PERMISOS ===
 function checkPermissions(member) {
   return member.permissions.has(['Administrator', 'ManageGuild', 'ManageMessages']);
 }
 
-// --- ENVÍO DE MENSAJES ---
+// === ENVÍO DE MENSAJES ===
 function enviarMensaje(member, tipo, testChannel = null) {
   const settings = config[tipo];
   if (!settings || !settings.embedJson) return;
@@ -71,18 +71,22 @@ function enviarMensaje(member, tipo, testChannel = null) {
       .replace(/{lineaDecorativa}/g, lineaDecorativa)
       .replace(/{enlaces}/g, enlaces);
 
-    const embedData = JSON.parse(jsonString);
+    const parsedData = JSON.parse(jsonString);
+    const embedData = parsedData.embeds && parsedData.embeds.length > 0 ? parsedData.embeds[0] : null;
+    if (!embedData) {
+      log(`Error: El JSON de ${tipo} no tiene un embed válido.`);
+      return;
+    }
+
     const embedToSend = EmbedBuilder.from(embedData);
     if (!embedData.timestamp) embedToSend.setTimestamp();
-
-    if (embedData.image && embedData.image.url) embedToSend.setImage(embedData.image.url);
     targetChannel.send({ embeds: [embedToSend] });
   } catch (error) {
-    log(`❌ Error al enviar mensaje de ${tipo}: ${error.message}`);
+    log(`Error al enviar mensaje de ${tipo}: ${error.message}`);
   }
 }
 
-// --- CLIENTE DISCORD ---
+// === CLIENTE DISCORD ===
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -93,10 +97,10 @@ const client = new Client({
 });
 
 client.once(Events.ClientReady, () => {
-  log(`🤖 Bot iniciado como ${client.user.tag}`);
+  log(`Bot iniciado como ${client.user.tag}`);
 });
 
-// --- EVENTOS AUTOMÁTICOS ---
+// === EVENTOS AUTOMÁTICOS ===
 client.on(Events.GuildMemberAdd, (member) => enviarMensaje(member, 'bienvenida'));
 client.on(Events.GuildMemberRemove, (member) => enviarMensaje(member, 'despedida'));
 
@@ -107,7 +111,17 @@ client.on(Events.MessageCreate, async (message) => {
   const args = message.content.slice(prefix.length).trim().split(/\s+/);
   const command = args.shift().toLowerCase();
 
-  const adminCommands = ['setwelcome', 'setbye', 'test1', 'test2', 'testembed', 'showconfig', 'send'];
+  const adminCommands = [
+    'setwelcome',
+    'setbye',
+    'testwelcome',
+    'testbye',
+    'testembed',
+    'showconfig',
+    'send',
+    'status',
+    'checkjson',
+  ];
   const isAdminCommand = adminCommands.includes(command);
 
   if (isAdminCommand && !checkPermissions(message.member)) {
@@ -116,26 +130,23 @@ client.on(Events.MessageCreate, async (message) => {
 
   try {
     switch (command) {
-      case 'test1':
       case 'testwelcome':
-        enviarMensaje(message.member, 'bienvenida', message.channel);
-        message.channel.send('✅ Prueba de **Bienvenida** enviada.');
+      case 'testbye': {
+        const tipo = command === 'testwelcome' ? 'bienvenida' : 'despedida';
+        enviarMensaje(message.member, tipo, message.channel);
+        message.react('✅');
         break;
+      }
 
-      case 'test2':
-      case 'testbye':
-        enviarMensaje(message.member, 'despedida', message.channel);
-        message.channel.send('✅ Prueba de **Despedida** enviada.');
-        break;
-
-      case 'testembed':
+      case 'testembed': {
         const testEmbed = {
-          title: '🐙 Prueba de Embed',
+          title: 'Prueba de Embed',
           description: 'Este es un embed de prueba enviado por `!testembed`.',
           color: 3447003,
         };
         await message.channel.send({ embeds: [EmbedBuilder.from(testEmbed)] });
         break;
+      }
 
       case 'showconfig':
         message.channel.send(`\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\``);
@@ -149,24 +160,29 @@ client.on(Events.MessageCreate, async (message) => {
           channelId = channelId.slice(2, -1);
         }
 
-        const jsonText = message.content.slice(command.length + 2 + (args[0]?.length || 0)).trim();
-        if (!channelId || !jsonText) {
+        const jsonTextWithBlock = message.content.slice(command.length + 2 + (args[0]?.length || 0)).trim();
+        if (!channelId || !jsonTextWithBlock) {
           return message.reply(`Uso: \`!${command} #canal <JSON de Embed>\``);
         }
 
         const targetChannel = message.guild.channels.cache.get(channelId);
         if (!targetChannel) {
-          return message.reply('❌ Canal inválido.');
+          return message.reply('Canal inválido.');
         }
 
         try {
-          const jsonString = jsonText.replace(/```json|```/g, '').trim();
+          const jsonString = jsonTextWithBlock.replace(/```json|```/g, '').trim();
           const parsed = JSON.parse(jsonString);
+
+          if (!parsed.embeds || !Array.isArray(parsed.embeds)) {
+            return message.reply('El JSON debe contener un array llamado "embeds".');
+          }
+
           saveConfig(key, { canalId: channelId, embedJson: parsed });
-          message.reply(`✅ ${key} configurada correctamente.`);
+          message.reply(`${key} configurada correctamente.`);
           enviarMensaje(message.member, key, message.channel);
         } catch (error) {
-          message.channel.send(`❌ Error en el JSON: ${error.message}`);
+          message.channel.send(`Error en el JSON: ${error.message}`);
         }
         break;
       }
@@ -184,10 +200,10 @@ client.on(Events.MessageCreate, async (message) => {
           return message.reply('Uso: `!send #canal <mensaje o JSON de embed>`');
         }
 
-        setTimeout(() => message.delete().catch(() => {}), 200);
-
         try {
+          await message.delete().catch(() => {});
           let messageOptions = { content };
+
           if (content.startsWith('{') && content.endsWith('}')) {
             const jsonString = content.replace(/```json|```/g, '').trim();
             const parsed = JSON.parse(jsonString);
@@ -204,23 +220,65 @@ client.on(Events.MessageCreate, async (message) => {
           }
 
           await targetChannel.send(messageOptions);
-          message.channel.send(`✅ Mensaje enviado a <#${channelId}>.`);
+          message.react('✅');
         } catch (error) {
-          message.channel.send(`❌ Error al enviar: ${error.message}`);
+          message.channel.send(`Error al enviar: ${error.message}`);
         }
+        break;
+      }
+
+      case 'status':
+      case 'help': {
+        const statusMsg =
+          '**Comandos disponibles:**\n' +
+          '`!setwelcome`, `!setbye`, `!testwelcome`, `!testbye`, `!testembed`, `!showconfig`, `!send`, `!checkjson`\n\n' +
+          '**Configuraciones actuales:**\n' +
+          Object.entries(config)
+            .map(([k, v]) => `• ${k}: <#${v.canalId || 'sin canal'}>`)
+            .join('\n');
+        message.channel.send(statusMsg);
+        break;
+      }
+
+      case 'checkjson': {
+        if (Object.keys(config).length === 0) {
+          return message.reply('No hay configuraciones guardadas.');
+        }
+
+        let report = '**Revisión de JSONs:**\n';
+        for (const [tipo, data] of Object.entries(config)) {
+          try {
+            const embed = data.embedJson?.embeds?.[0];
+            if (!embed) {
+              report += `• ${tipo}: ❌ No tiene embeds válidos.\n`;
+              continue;
+            }
+
+            const faltantes = [];
+            if (!embed.description) faltantes.push('description');
+            if (!embed.color) faltantes.push('color');
+            if (!embed.title && !embed.author?.name) faltantes.push('title/author');
+
+            report += faltantes.length
+              ? `• ${tipo}: ⚠️ Faltan campos: ${faltantes.join(', ')}\n`
+              : `• ${tipo}: ✅ Correcto\n`;
+          } catch {
+            report += `• ${tipo}: ❌ Error al analizar\n`;
+          }
+        }
+        message.channel.send(report);
         break;
       }
     }
   } catch (err) {
-    log(`❌ Error en comando ${command}: ${err.message}`);
+    log(`Error en comando ${command}: ${err.message}`);
   }
 });
 
-// --- SERVIDOR WEB PARA UPTIME ROBOT ---
+// === SERVIDOR WEB PARA RENDER/UPTIMEROBOT ===
 const app = express();
 const port = process.env.PORT || 3000;
-
 app.get('/', (req, res) => res.status(200).send('Bot de Discord funcionando.'));
-app.listen(port, '0.0.0.0', () => log(`🌐 Web escuchando en puerto ${port}`));
+app.listen(port, '0.0.0.0', () => log(`Web escuchando en puerto ${port}`));
 
 client.login(TOKEN);
