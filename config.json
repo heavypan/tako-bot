@@ -1,12 +1,12 @@
 {
     "bienvenida": {
-        "canalId": null,
+        "canalId": 1432548239743385672,
         "embedJson": {
             "title": "Configura tu mensaje de bienvenida con !setwelcome"
         }
     },
     "despedida": {
-        "canalId": null,
+        "canalId": 1432549017086328903,
         "embedJson": {
             "title": "Configura tu mensaje de despedida con !setbye"
         }
