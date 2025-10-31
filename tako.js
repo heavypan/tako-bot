@@ -30,14 +30,6 @@ function saveConfig(key, newSettings) {
   log(`Configuración de "${key}" actualizada.`);
 }
 
-const EMOTRANS = '<:cosotrans:1432794205884911788>';
-const ZWS = '⠀';
-const lineaDecorativa = ` ${ZWS}✨⁺.｡°${EMOTRANS} + . ° ﹒✨⁺.｡°${EMOTRANS} ${ZWS}\n`;
-const enlaces =
-  `${ZWS} [**Reglas**](https://discord.com/channels/1432536513370919057/1432536515237380201)` +
-  ` ${ZWS.repeat(2)} [**Anuncios**](https://discord.com/channels/1432536513370919057/1432536515237380197)` +
-  ` ${ZWS.repeat(2)} [**Chat**](https://discord.com/channels/1432536513370919057/1432536515237380197)`;
-
 function checkPermissions(member) {
   return member.permissions.has(['Administrator', 'ManageGuild', 'ManageMessages']);
 }
@@ -66,9 +58,7 @@ function convertirDiscohook(jsonDiscohook, member = null) {
     embed.description = embed.description
       ?.replace(/{usuario}/g, `<@${member.id}>`)
       .replace(/{nombreUsuario}/g, member.user.username)
-      .replace(/{miembrosTotales}/g, member.guild.memberCount.toString())
-      .replace(/{lineaDecorativa}/g, lineaDecorativa)
-      .replace(/{enlaces}/g, enlaces);
+      .replace(/{miembrosTotales}/g, member.guild.memberCount.toString());
   }
 
   try {
@@ -176,13 +166,8 @@ client.on(Events.MessageCreate, async (message) => {
           saveConfig(key, { canalId: channelId, embedJson: parsed });
           message.reply(`${key} configurada correctamente.`);
 
-          // Usuario de prueba para evitar que mencione al configurador
-          const fakeMember = {
-            id: '000000000000000000',
-            user: { username: 'UsuarioDePrueba' },
-            guild: message.guild,
-          };
-          enviarMensaje(fakeMember, key, message.channel);
+          // Envía el mensaje de prueba usando al autor del comando
+          enviarMensaje(message.member, key, message.channel);
         } catch (error) {
           message.reply(`Error en el JSON: ${error.message}`);
         }
