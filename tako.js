@@ -35,7 +35,7 @@ const ZWS = '⠀';
 const lineaDecorativa = ` ${ZWS}✨⁺.｡°${EMOTRANS} + . ° ﹒✨⁺.｡°${EMOTRANS} ${ZWS}\n`;
 const enlaces =
   `${ZWS} [**Reglas**](https://discord.com/channels/1432536513370919057/1432536515237380201)` +
-  ` ${ZWS.repeat(2)} [**Anuncios**](https://discord.com/channels/1432536513370919057/1432536515237380197)` +
+  ` ${ZWS.repeat(2)} [**Anuncios**](https://discord.com/channels/1432536513370919057/1432536515237380198)` +
   ` ${ZWS.repeat(2)} [**Chat**](https://discord.com/channels/1432536513370919057/1432536515237380197)`;
 
 function checkPermissions(member) {
@@ -79,14 +79,26 @@ function convertirDiscohook(jsonDiscohook, member = null) {
   }
 }
 
-function enviarMensaje(member, tipo, testChannel = null) {
+function enviarMensaje(member, tipo, testChannel = null, isTest = false) {
   const settings = config[tipo];
   if (!settings || !settings.embedJson) return;
 
   const targetChannel = testChannel || member.guild.channels.cache.get(settings.canalId);
   if (!targetChannel) return;
 
-  const embedToSend = convertirDiscohook(settings.embedJson, member);
+  let embedToSend;
+  if (isTest) {
+    // Para pruebas de !setwelcome o !setbye
+    const fakeMember = {
+      id: '000000000000000000',
+      user: { username: 'UsuarioDePrueba' },
+      guild: member.guild,
+    };
+    embedToSend = convertirDiscohook(settings.embedJson, fakeMember);
+  } else {
+    embedToSend = convertirDiscohook(settings.embedJson, member);
+  }
+
   if (!embedToSend) return;
 
   if (!embedToSend.data.timestamp) embedToSend.setTimestamp();
@@ -106,6 +118,7 @@ client.once(Events.ClientReady, () => {
   log(`Bot iniciado como ${client.user.tag}`);
 });
 
+// Mensajes reales de bienvenida y despedida
 client.on(Events.GuildMemberAdd, (member) => enviarMensaje(member, 'bienvenida'));
 client.on(Events.GuildMemberRemove, (member) => enviarMensaje(member, 'despedida'));
 
@@ -135,7 +148,7 @@ client.on(Events.MessageCreate, async (message) => {
       case 'testwelcome':
       case 'testbye': {
         const tipo = command === 'testwelcome' ? 'bienvenida' : 'despedida';
-        enviarMensaje(message.member, tipo, message.channel);
+        enviarMensaje(message.member, tipo, message.channel, true); // Test con fakeMember
         break;
       }
 
@@ -153,7 +166,6 @@ client.on(Events.MessageCreate, async (message) => {
         message.channel.send(`\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\``);
         break;
 
-      // ==== BLOQUE CORREGIDO ====
       case 'setwelcome':
       case 'setbye': {
         const key = command === 'setwelcome' ? 'bienvenida' : 'despedida';
@@ -175,12 +187,14 @@ client.on(Events.MessageCreate, async (message) => {
 
           saveConfig(key, { canalId: channelId, embedJson: parsed });
           message.reply(`${key} configurada correctamente.`);
+
+          // Enviar embed de prueba con fakeMember
+          enviarMensaje(message.member, key, message.channel, true);
         } catch (error) {
           message.reply(`Error en el JSON: ${error.message}`);
         }
         break;
       }
-      // ==== FIN BLOQUE CORREGIDO ====
 
       case 'send': {
         let channelId = args[0];
@@ -222,7 +236,7 @@ client.on(Events.MessageCreate, async (message) => {
           '`!setwelcome`, `!setbye`, `!testwelcome`, `!testbye`, `!testembed`, `!showconfig`, `!send`, `!checkjson`\n\n' +
           '**Configuraciones:**\n' +
           Object.entries(config)
-            .map(([k, v]) => `• ${k}: <#${v.canalId || 'sin canal'}>`)
+            .map(([k, v]) => `• ${k}: <#${v.canalId || 'sin canal'}>` )
             .join('\n');
         message.channel.send(statusMsg);
         break;
