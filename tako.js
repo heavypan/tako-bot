@@ -153,6 +153,7 @@ client.on(Events.MessageCreate, async (message) => {
         message.channel.send(`\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\``);
         break;
 
+      // ==== BLOQUE ACTUALIZADO ====
       case 'setwelcome':
       case 'setbye': {
         const key = command === 'setwelcome' ? 'bienvenida' : 'despedida';
@@ -174,12 +175,20 @@ client.on(Events.MessageCreate, async (message) => {
 
           saveConfig(key, { canalId: channelId, embedJson: parsed });
           message.reply(`${key} configurada correctamente.`);
-          enviarMensaje(message.member, key, message.channel);
+
+          // Usuario de prueba para evitar que mencione al configurador
+          const fakeMember = {
+            id: '000000000000000000',
+            user: { username: 'UsuarioDePrueba' },
+            guild: message.guild,
+          };
+          enviarMensaje(fakeMember, key, message.channel);
         } catch (error) {
           message.reply(`Error en el JSON: ${error.message}`);
         }
         break;
       }
+      // ==== FIN DEL BLOQUE ACTUALIZADO ====
 
       case 'send': {
         let channelId = args[0];
