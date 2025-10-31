@@ -2,39 +2,34 @@ const { Client, GatewayIntentBits, Events, EmbedBuilder } = require('discord.js'
 const express = require('express');
 require('dotenv').config();
 
-// === CONFIGURACIÓN BASE ===
 const TOKEN = process.env.DISCORD_TOKEN;
 const prefix = '!';
 
-// # Logs con hora
 function log(msg) {
   const time = new Date().toISOString().replace('T', ' ').split('.')[0];
   console.log(`[${time}] ${msg}`);
 }
 
-// === CONFIGURACIÓN EN MEMORIA (NO EN ARCHIVO) ===
 let config = {};
 try {
   if (process.env.BOT_CONFIG) {
     config = JSON.parse(process.env.BOT_CONFIG);
-    log('Configuración cargada desde variable de entorno.');
+    log('Configuración cargada.');
   } else {
     config = {};
-    log('No se encontró configuración previa, iniciando vacía.');
+    log('Iniciando configuración vacía.');
   }
 } catch (err) {
   log(`Error al leer configuración: ${err.message}`);
   config = {};
 }
 
-// # Guardar configuración en memoria
 function saveConfig(key, newSettings) {
   config[key] = newSettings;
   process.env.BOT_CONFIG = JSON.stringify(config);
-  log(`Configuración de "${key}" actualizada en memoria.`);
+  log(`Configuración de "${key}" actualizada.`);
 }
 
-// === CONSTANTES VISUALES ===
 const EMOTRANS = '<:cosotrans:1432794205884911788>';
 const ZWS = '⠀';
 const lineaDecorativa = ` ${ZWS}✨⁺.｡°${EMOTRANS} + . ° ﹒✨⁺.｡°${EMOTRANS} ${ZWS}\n`;
@@ -43,12 +38,10 @@ const enlaces =
   ` ${ZWS.repeat(2)} [**Anuncios**](https://discord.com/channels/1432536513370919057/1432536515237380197)` +
   ` ${ZWS.repeat(2)} [**Chat**](https://discord.com/channels/1432536513370919057/1432536515237380197)`;
 
-// === PERMISOS ===
 function checkPermissions(member) {
   return member.permissions.has(['Administrator', 'ManageGuild', 'ManageMessages']);
 }
 
-// === CONVERTIDOR DE JSON DE DISCOHOOK ===
 function convertirDiscohook(jsonDiscohook, member = null) {
   let data;
   if (typeof jsonDiscohook === 'string') {
@@ -63,7 +56,7 @@ function convertirDiscohook(jsonDiscohook, member = null) {
   }
 
   if (!data.embeds || !Array.isArray(data.embeds) || data.embeds.length === 0) {
-    console.error('El JSON de Discohook no tiene embeds válidos.');
+    console.error('El JSON no tiene embeds válidos.');
     return null;
   }
 
@@ -71,7 +64,7 @@ function convertirDiscohook(jsonDiscohook, member = null) {
 
   if (member) {
     embed.description = embed.description
-      ?.replace(/{usuario}/g, `<@${member.user.id}>`)
+      ?.replace(/{usuario}/g, `<@${member.id}>`)
       .replace(/{nombreUsuario}/g, member.user.username)
       .replace(/{miembrosTotales}/g, member.guild.memberCount.toString())
       .replace(/{lineaDecorativa}/g, lineaDecorativa)
@@ -81,12 +74,11 @@ function convertirDiscohook(jsonDiscohook, member = null) {
   try {
     return EmbedBuilder.from(embed);
   } catch (err) {
-    console.error('Error al convertir a EmbedBuilder:', err.message);
+    console.error('Error al convertir embed:', err.message);
     return null;
   }
 }
 
-// === ENVÍO DE MENSAJES ===
 function enviarMensaje(member, tipo, testChannel = null) {
   const settings = config[tipo];
   if (!settings || !settings.embedJson) return;
@@ -101,7 +93,6 @@ function enviarMensaje(member, tipo, testChannel = null) {
   targetChannel.send({ embeds: [embedToSend] });
 }
 
-// === CLIENTE DISCORD ===
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -115,11 +106,9 @@ client.once(Events.ClientReady, () => {
   log(`Bot iniciado como ${client.user.tag}`);
 });
 
-// === EVENTOS AUTOMÁTICOS ===
 client.on(Events.GuildMemberAdd, (member) => enviarMensaje(member, 'bienvenida'));
 client.on(Events.GuildMemberRemove, (member) => enviarMensaje(member, 'despedida'));
 
-// === COMANDOS ===
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot || !message.content.startsWith(prefix)) return;
 
@@ -143,7 +132,6 @@ client.on(Events.MessageCreate, async (message) => {
 
   try {
     switch (command) {
-      // # TEST MESSAGES
       case 'testwelcome':
       case 'testbye': {
         const tipo = command === 'testwelcome' ? 'bienvenida' : 'despedida';
@@ -161,12 +149,10 @@ client.on(Events.MessageCreate, async (message) => {
         break;
       }
 
-      // # MOSTRAR CONFIG
       case 'showconfig':
         message.channel.send(`\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\``);
         break;
 
-      // # SET WELCOME / BYE
       case 'setwelcome':
       case 'setbye': {
         const key = command === 'setwelcome' ? 'bienvenida' : 'despedida';
@@ -195,7 +181,6 @@ client.on(Events.MessageCreate, async (message) => {
         break;
       }
 
-      // # SEND MESSAGE (TEXTO O EMBED)
       case 'send': {
         let channelId = args[0];
         if (channelId?.startsWith('<#') && channelId.endsWith('>')) channelId = channelId.slice(2, -1);
@@ -229,13 +214,12 @@ client.on(Events.MessageCreate, async (message) => {
         break;
       }
 
-      // # STATUS / HELP
       case 'status':
       case 'help': {
         const statusMsg =
-          '**Comandos disponibles:**\n' +
+          '**Comandos:**\n' +
           '`!setwelcome`, `!setbye`, `!testwelcome`, `!testbye`, `!testembed`, `!showconfig`, `!send`, `!checkjson`\n\n' +
-          '**Configuraciones actuales:**\n' +
+          '**Configuraciones:**\n' +
           Object.entries(config)
             .map(([k, v]) => `• ${k}: <#${v.canalId || 'sin canal'}>`)
             .join('\n');
@@ -243,7 +227,6 @@ client.on(Events.MessageCreate, async (message) => {
         break;
       }
 
-      // # CHECK JSON
       case 'checkjson': {
         if (Object.keys(config).length === 0) return message.reply('No hay configuraciones guardadas.');
         let report = '**Revisión de JSONs:**\n';
@@ -274,10 +257,9 @@ client.on(Events.MessageCreate, async (message) => {
   }
 });
 
-// === SERVIDOR WEB PARA RENDER/UPTIMEROBOT ===
 const app = express();
 const port = process.env.PORT || 3000;
-app.get('/', (req, res) => res.status(200).send('Bot de Discord funcionando.'));
+app.get('/', (req, res) => res.status(200).send('Bot funcionando.'));
 app.listen(port, '0.0.0.0', () => log(`Web escuchando en puerto ${port}`));
 
 client.login(TOKEN);
