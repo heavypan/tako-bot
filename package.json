@@ -10,6 +10,6 @@
     "discord.js": "^14.16.3",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "quick.db": "^9.1.8"
+    "better-sqlite3": "^9.0.0"
   }
 }
