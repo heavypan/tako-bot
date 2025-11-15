@@ -84,12 +84,8 @@ client.on(Events.MessageCreate, async (message) => {
     const command = args.shift().toLowerCase();
 
     const adminCommands = ['setwelcome', 'setbye', 'testwelcome', 'testbye', 'showconfig', 'send'];
-
-    // ----------------------------------------------------------------------
-    // MODIFICACIÓN DE PERMISOS: Ignorar si no tiene permisos
-    // Si el comando es de administración Y el miembro NO tiene permisos:
     if (adminCommands.includes(command) && !checkPermissions(message.member))
-        return; // Simplemente retorna sin enviar ningún mensaje de error
+        return;
     // ----------------------------------------------------------------------
 
     try {
@@ -185,15 +181,15 @@ client.on(Events.MessageCreate, async (message) => {
                 message.channel.send(`\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\``);
                 break;
                 
-            // ==================== NUEVO COMANDO !HELP ====================
+            // ==================== COMANDO !HELP ====================
             case 'help': {
                 const embed = new EmbedBuilder()
                     .setColor(0x0099FF)
-                    .setTitle('🐙 Comandos de Tako Bot')
+                    .setTitle('🐙 Comandos de Tako')
                     .setDescription(`Mi prefijo es: \`${prefix}\``)
                     .addFields(
                         { 
-                            name: '🛠️ Comandos de Administración (Requiere permisos)', 
+                            name: 'Comandos de Admin', 
                             value: `
                             \`${prefix}setwelcome #canal <JSON>\` - Configura el embed de bienvenida.
                             \`${prefix}setbye #canal <JSON>\` - Configura el embed de despedida.
@@ -204,14 +200,14 @@ client.on(Events.MessageCreate, async (message) => {
                             `
                         },
                         {
-                            name: '✨ Comandos Generales',
+                            name: 'Comandos',
                             value: `
                             \`${prefix}help\` - Muestra esta lista de comandos.
                             `
                         }
                     )
                     .setTimestamp()
-                    .setFooter({ text: 'Gracias por usar Tako!' });
+                    .setFooter({ text: 'Hecho por Danilow' });
                     
                 message.channel.send({ embeds: [embed] });
                 break;
@@ -230,3 +226,4 @@ app.get('/', (req, res) => res.status(200).send('Bot funcionando.'));
 app.listen(port, '0.0.0.0', () => log(`Web escuchando en puerto ${port}`));
 
 client.login(TOKEN);
+
