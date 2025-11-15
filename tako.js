@@ -2,6 +2,38 @@ const { Client, GatewayIntentBits, Events, EmbedBuilder, PermissionFlagsBits } =
 const express = require('express');
 require('dotenv').config();
 
+
+// ==================== BASE DE DATOS  ====================
+const Database = require("better-sqlite3");
+const db = new Database("database.sqlite");
+
+// Crear tabla si no existe
+db.prepare(`
+    CREATE TABLE IF NOT EXISTS data (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )
+`).run();
+
+// Funciones 
+function dbGet(key) {
+    const row = db.prepare("SELECT value FROM data WHERE key = ?").get(key);
+    return row ? JSON.parse(row.value) : null;
+}
+
+function dbSet(key, value) {
+    db.prepare("INSERT OR REPLACE INTO data (key, value) VALUES (?, ?)").run(
+        key,
+        JSON.stringify(value)
+    );
+}
+
+function dbDelete(key) {
+    db.prepare("DELETE FROM data WHERE key = ?").run(key);
+}
+// =======================================================================
+
+
 const TOKEN = process.env.DISCORD_TOKEN;
 const prefix = '!';
 
@@ -44,7 +76,6 @@ function enviarEmbed(member, tipo, testChannel = null) {
     let embed = JSON.parse(JSON.stringify(settings.embedJson));
 
     if (member) {
-        // Validación de existencia de 'description' antes de usar .replace
         if (embed.embeds && Array.isArray(embed.embeds) && embed.embeds[0] && embed.embeds[0].description) {
             embed.embeds[0].description = embed.embeds[0].description
                 .replace(/{usuario}/g, `<@${member.id}>`)
@@ -90,10 +121,10 @@ client.on(Events.MessageCreate, async (message) => {
     const adminCommands = ['setwelcome', 'setbye', 'testwelcome', 'testbye', 'showconfig', 'send'];
     if (adminCommands.includes(command) && !checkPermissions(message.member))
         return;
-    // ----------------------------------------------------------------------
 
     try {
         switch (command) {
+
             case 'setwelcome':
             case 'setbye': {
                 const key = command === 'setwelcome' ? 'bienvenida' : 'despedida';
@@ -121,72 +152,66 @@ client.on(Events.MessageCreate, async (message) => {
                 break;
             }
 
-            // ==================== COMANDO !SEND ====================
+        // ==================== COMANDO SEND (no tocado salvo lo necesario) ====================
         case 'send': {
-    let channelId = args[0];
+            let channelId = args[0];
 
-    // Detectar si el canal está mencionado <#123>
-    if (channelId?.startsWith('<') && channelId.endsWith('>')) {
-        channelId = channelId.replace(/[<#>]/g, '');
-    }
-
-    if (!channelId)
-        return message.reply(`Uso: !send canal mensaje_o_JSON`);
-
-    const targetChannel = message.guild.channels.cache.get(channelId);
-    if (!targetChannel)
-        return message.reply('Canal inválido.');
-
-    // Todo lo que venga después del ID del canal es el mensaje
-    const messageText = message.content.split(/\s+/).slice(2).join(" ").trim();
-
-    if (!messageText && message.attachments.size === 0)
-        return message.reply(`Uso: !send canal mensaje_o_JSON`);
-
-    try {
-        let parsed = null;
-
-        // Intentar parsear JSON
-        try {
-            const cleaned = messageText.replace(/```json|```/g, '').trim();
-            parsed = JSON.parse(cleaned);
-        } catch {
-            parsed = null;
-        }
-
-        let sendOptions = {};
-
-        // Si el mensaje incluía archivos adjuntos
-        if (message.attachments.size > 0) {
-            sendOptions.files = [...message.attachments.values()].map(a => a.url);
-        }
-
-        if (parsed) {
-            // Si es JSON válido
-            if (parsed.content) sendOptions.content = parsed.content;
-
-            if (parsed.embeds && Array.isArray(parsed.embeds)) {
-                sendOptions.embeds = parsed.embeds.map(e => EmbedBuilder.from(e));
+            if (channelId?.startsWith('<') && channelId.endsWith('>')) {
+                channelId = channelId.replace(/[<#>]/g, '');
             }
 
-            if (!parsed.content && !parsed.embeds)
-                return message.reply('El JSON debe incluir "content" o "embeds".');
+            if (!channelId)
+                return message.reply(`Uso: !send canal mensaje_o_JSON`);
 
-        } else {
-            // No es JSON → mensaje normal
-            sendOptions.content = messageText;
+            const targetChannel = message.guild.channels.cache.get(channelId);
+            if (!targetChannel)
+                return message.reply('Canal inválido.');
+
+            const messageText = message.content.split(/\s+/).slice(2).join(" ").trim();
+
+            if (!messageText && message.attachments.size === 0)
+                return message.reply(`Uso: !send canal mensaje_o_JSON`);
+
+            try {
+                let parsed = null;
+
+                try {
+                    const cleaned = messageText.replace(/```json|```/g, '').trim();
+                    parsed = JSON.parse(cleaned);
+                } catch {
+                    parsed = null;
+                }
+
+                let sendOptions = {};
+
+                if (message.attachments.size > 0) {
+                    sendOptions.files = [...message.attachments.values()].map(a => a.url);
+                }
+
+                if (parsed) {
+                    if (parsed.content) sendOptions.content = parsed.content;
+
+                    if (parsed.embeds && Array.isArray(parsed.embeds)) {
+                        sendOptions.embeds = parsed.embeds.map(e => EmbedBuilder.from(e));
+                    }
+
+                    if (!parsed.content && !parsed.embeds)
+                        return message.reply('El JSON debe incluir "content" o "embeds".');
+
+                } else {
+                    sendOptions.content = messageText;
+                }
+
+                await targetChannel.send(sendOptions);
+                message.react('✅');
+
+            } catch (error) {
+                message.reply(`Error al enviar: ${error.message}`);
+            }
+
+            break;
         }
-
-        await targetChannel.send(sendOptions);
-        message.react('✅');
-
-    } catch (error) {
-        message.reply(`Error al enviar: ${error.message}`);
-    }
-
-    break;
-}
-            // ========================================================
+        // ================================================================================
 
             case 'testwelcome':
             case 'testbye': {
@@ -198,8 +223,7 @@ client.on(Events.MessageCreate, async (message) => {
             case 'showconfig':
                 message.channel.send(`\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\``);
                 break;
-                
-            // ==================== COMANDO !HELP ====================
+
             case 'help': {
                 const embed = new EmbedBuilder()
                     .setColor(0x0099FF)
@@ -209,18 +233,18 @@ client.on(Events.MessageCreate, async (message) => {
                         { 
                             name: 'Comandos de Admin', 
                             value: `
-                            \`${prefix}setwelcome #canal <JSON>\` - Configura el embed de bienvenida.
-                            \`${prefix}setbye #canal <JSON>\` - Configura el embed de despedida.
-                            \`${prefix}testwelcome\` - Prueba el embed de bienvenida en este canal.
-                            \`${prefix}testbye\` - Prueba el embed de despedida en este canal.
-                            \`${prefix}send #canal <mensaje/JSON>\` - Envía un mensaje o embed al canal.
-                            \`${prefix}showconfig\` - Muestra la configuración actual (temporal).
+                            \`${prefix}setwelcome #canal <JSON>\`
+                            \`${prefix}setbye #canal <JSON>\`
+                            \`${prefix}testwelcome\`
+                            \`${prefix}testbye\`
+                            \`${prefix}send #canal <mensaje/JSON>\`
+                            \`${prefix}showconfig\`
                             `
                         },
                         {
                             name: 'Comandos',
                             value: `
-                            \`${prefix}help\` - Muestra esta lista de comandos.
+                            \`${prefix}help\`
                             `
                         }
                     )
@@ -230,7 +254,6 @@ client.on(Events.MessageCreate, async (message) => {
                 message.channel.send({ embeds: [embed] });
                 break;
             }
-            // =============================================================
         }
     } catch (err) {
         log(`Error en comando ${command}: ${err.message}`);
