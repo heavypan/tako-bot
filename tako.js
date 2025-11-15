@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Events, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Events, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 const express = require('express');
 require('dotenv').config();
 
@@ -26,7 +26,11 @@ try {
 
 // ==================== FUNCIONES ====================
 function checkPermissions(member) {
-    return member.permissions.has(['Administrator', 'ManageGuild', 'ManageMessages']);
+    return member.permissions.has([
+        PermissionFlagsBits.Administrator,
+        PermissionFlagsBits.ManageGuild,
+        PermissionFlagsBits.ManageMessages
+    ]);
 }
 
 // Función para enviar embed dinámico reemplazando placeholders
@@ -118,56 +122,70 @@ client.on(Events.MessageCreate, async (message) => {
             }
 
             // ==================== COMANDO !SEND ====================
-            case 'send': {
-                let channelId = args[0];
-                if (channelId?.startsWith('<#') && channelId.endsWith('>'))
-                    channelId = channelId.slice(2, -1);
+        case 'send': {
+    let channelId = args[0];
 
-                const channelMentionLength = args[0] ? args[0].length : 0;
-                const offset = prefix.length + command.length + 1 + channelMentionLength + 1;
-                const messageText = message.content.substring(offset).trim();
+    // Detectar si el canal está mencionado <#123>
+    if (channelId?.startsWith('<') && channelId.endsWith('>')) {
+        channelId = channelId.replace(/[<#>]/g, '');
+    }
 
-                if (!channelId || !messageText)
-                    return message.reply(`Uso: \`!send #canal <mensaje o JSON de Embed>\``);
+    if (!channelId)
+        return message.reply(`Uso: !send canal mensaje_o_JSON`);
 
-                const targetChannel = message.guild.channels.cache.get(channelId);
-                if (!targetChannel)
-                    return message.reply('Canal inválido.');
+    const targetChannel = message.guild.channels.cache.get(channelId);
+    if (!targetChannel)
+        return message.reply('Canal inválido.');
 
-                try {
-                    // Intentar parsear el mensaje como JSON
-                    let parsed;
-                    try {
-                        const jsonString = messageText.replace(/```json|```/g, '').trim();
-                        parsed = JSON.parse(jsonString);
-                    } catch {
-                        parsed = null;
-                    }
+    // Todo lo que venga después del ID del canal es el mensaje
+    const messageText = message.content.split(/\s+/).slice(2).join(" ").trim();
 
-                    const sendOptions = {};
+    if (!messageText && message.attachments.size === 0)
+        return message.reply(`Uso: !send canal mensaje_o_JSON`);
 
-                    if (parsed) {
-                        // Si es JSON válido
-                        if (parsed.content) sendOptions.content = parsed.content;
-                        if (parsed.embeds && Array.isArray(parsed.embeds) && parsed.embeds.length > 0)
-                            sendOptions.embeds = parsed.embeds.map(embedData => EmbedBuilder.from(embedData));
+    try {
+        let parsed = null;
 
-                        if (Object.keys(sendOptions).length === 0)
-                            return message.reply('El JSON debe contener al menos **"content"** o un array **"embeds"** válido.');
-                    } else {
-                        // Si no es JSON, lo enviamos como texto normal
-                        sendOptions.content = messageText;
-                    }
+        // Intentar parsear JSON
+        try {
+            const cleaned = messageText.replace(/```json|```/g, '').trim();
+            parsed = JSON.parse(cleaned);
+        } catch {
+            parsed = null;
+        }
 
-                    await targetChannel.send(sendOptions);
-                    message.react('✅');
+        let sendOptions = {};
 
-                } catch (error) {
-                    message.reply(`Error al enviar el mensaje: ${error.message}`);
-                }
+        // Si el mensaje incluía archivos adjuntos
+        if (message.attachments.size > 0) {
+            sendOptions.files = [...message.attachments.values()].map(a => a.url);
+        }
 
-                break;
+        if (parsed) {
+            // Si es JSON válido
+            if (parsed.content) sendOptions.content = parsed.content;
+
+            if (parsed.embeds && Array.isArray(parsed.embeds)) {
+                sendOptions.embeds = parsed.embeds.map(e => EmbedBuilder.from(e));
             }
+
+            if (!parsed.content && !parsed.embeds)
+                return message.reply('El JSON debe incluir "content" o "embeds".');
+
+        } else {
+            // No es JSON → mensaje normal
+            sendOptions.content = messageText;
+        }
+
+        await targetChannel.send(sendOptions);
+        message.react('✅');
+
+    } catch (error) {
+        message.reply(`Error al enviar: ${error.message}`);
+    }
+
+    break;
+}
             // ========================================================
 
             case 'testwelcome':
@@ -226,4 +244,3 @@ app.get('/', (req, res) => res.status(200).send('Bot funcionando.'));
 app.listen(port, '0.0.0.0', () => log(`Web escuchando en puerto ${port}`));
 
 client.login(TOKEN);
-
