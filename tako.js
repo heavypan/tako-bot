@@ -1,8 +1,6 @@
-const { Client, GatewayIntentBits, Events, EmbedBuilder, ChannelType } = require('discord.js');
+const { Client, GatewayIntentBits, Events, EmbedBuilder } = require('discord.js');
 const express = require('express');
-const { QuickDB } = require("quick.db"); // Importar Quick.db
-const db = new QuickDB(); // Inicializar la DB
-const configTemplates = require('./config.json'); //Cargar plantillas del archivo config.json
+require('dotenv').config();
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const prefix = '!';
@@ -12,48 +10,46 @@ function log(msg) {
     console.log(`[${time}] ${msg}`);
 }
 
-let config = {}; 
-
-// ==================== FUNCIONES ====================
-async function getEventConfig(key) {
-    let customConfig = await db.get(key);
-    // Usamos configTemplates (cargado de config.json) si no hay nada en la DB
-    return customConfig || configTemplates[key];
+let config = {};
+try {
+    if (process.env.BOT_CONFIG) {
+        config = JSON.parse(process.env.BOT_CONFIG);
+        log('Configuración cargada.');
+    } else {
+        config = {};
+        log('Iniciando configuración vacía.');
+    }
+} catch (err) {
+    log(`Error al leer configuración: ${err.message}`);
+    config = {};
 }
 
+// ==================== FUNCIONES ====================
 function checkPermissions(member) {
     return member.permissions.has(['Administrator', 'ManageGuild', 'ManageMessages']);
 }
 
-async function enviarEmbed(member, tipo, testChannel = null) { // AÑADIDO: async
-    // MODIFICACION DE BD
-    const settings = await getEventConfig(tipo); // AÑADIDO: await
-    
+// Función para enviar embed dinámico reemplazando placeholders
+function enviarEmbed(member, tipo, testChannel = null) {
+    const settings = config[tipo];
     if (!settings || !settings.embedJson) return;
 
     const targetChannel = testChannel || member.guild.channels.cache.get(settings.canalId);
-    // AÑADIDO: Validación de canal
-    if (!targetChannel || targetChannel.type !== ChannelType.GuildText) return; 
+    if (!targetChannel) return;
     
     let embed = JSON.parse(JSON.stringify(settings.embedJson));
 
     if (member) {
         // Validación de existencia de 'description' antes de usar .replace
         if (embed.embeds && Array.isArray(embed.embeds) && embed.embeds[0] && embed.embeds[0].description) {
-             embed.embeds[0].description = embed.embeds[0].description
+            embed.embeds[0].description = embed.embeds[0].description
                 .replace(/{usuario}/g, `<@${member.id}>`)
                 .replace(/{nombreUsuario}/g, member.user.username)
                 .replace(/{miembrosTotales}/g, member.guild.memberCount.toString());
         }
     }
-    
-    // Si el payload tiene 'content', lo incluimos
-    const sendOptions = { embeds: [EmbedBuilder.from(embed.embeds[0])] };
-    if (embed.content) {
-        sendOptions.content = embed.content;
-    }
-    
-    await targetChannel.send(sendOptions); // AÑADIDO: await
+
+    targetChannel.send({ embeds: [EmbedBuilder.from(embed.embeds[0])] });
 }
 
 // ==================== CLIENTE ====================
@@ -71,13 +67,13 @@ client.once(Events.ClientReady, () => {
 });
 
 // Evento cuando un miembro entra
-client.on(Events.GuildMemberAdd, async (member) => { // AÑADIDO: async
-    await enviarEmbed(member, 'bienvenida'); // AÑADIDO: await
+client.on(Events.GuildMemberAdd, (member) => {
+    enviarEmbed(member, 'bienvenida');
 });
 
 // Evento cuando un miembro sale
-client.on(Events.GuildMemberRemove, async (member) => { // AÑADIDO: async
-    await enviarEmbed(member, 'despedida'); // AÑADIDO: await
+client.on(Events.GuildMemberRemove, (member) => {
+    enviarEmbed(member, 'despedida');
 });
 
 // ==================== COMANDOS ====================
@@ -89,8 +85,12 @@ client.on(Events.MessageCreate, async (message) => {
 
     const adminCommands = ['setwelcome', 'setbye', 'testwelcome', 'testbye', 'showconfig', 'send'];
 
+    // ----------------------------------------------------------------------
+    // MODIFICACIÓN DE PERMISOS: Ignorar si no tiene permisos
+    // Si el comando es de administración Y el miembro NO tiene permisos:
     if (adminCommands.includes(command) && !checkPermissions(message.member))
-        return message.reply('❌ No tienes permisos para usar este comando.');
+        return; // Simplemente retorna sin enviar ningún mensaje de error
+    // ----------------------------------------------------------------------
 
     try {
         switch (command) {
@@ -100,9 +100,7 @@ client.on(Events.MessageCreate, async (message) => {
                 let channelId = args[0];
                 if (channelId?.startsWith('<#') && channelId.endsWith('>')) channelId = channelId.slice(2, -1);
 
-                // Lógica de slice ajustada para el prefix, command, y args[0]
-                const jsonText = message.content.slice(prefix.length + command.length + (args[0]?.length || 0)).trim();
-
+                const jsonText = message.content.slice(command.length + 2 + (args[0]?.length || 0)).trim();
                 if (!channelId || !jsonText)
                     return message.reply(`Uso: \`!${command} #canal <JSON de Embed>\``);
 
@@ -111,15 +109,12 @@ client.on(Events.MessageCreate, async (message) => {
 
                 try {
                     const jsonString = jsonText.replace(/```json|```/g, '').trim();
-                    const parsed = JSON.parse(jsonString); // Este es el payload de Discohook completo
-                    
+                    const parsed = JSON.parse(jsonString);
                     if (!parsed.embeds || !Array.isArray(parsed.embeds))
                         return message.reply('El JSON debe contener un array llamado "embeds".');
 
-                    // ¡CAMBIO CLAVE! GUARDAR EN LA DB
-                    await db.set(key, { canalId: channelId, embedJson: parsed }); // GUARDA PERSISTENTE
-
-                    message.reply(`✅ ${key} configurada correctamente y guardada de forma persistente.`);
+                    config[key] = { canalId: channelId, embedJson: parsed };
+                    message.reply(`${key} configurada correctamente.`);
                 } catch (error) {
                     message.reply(`Error en el JSON: ${error.message}`);
                 }
@@ -133,8 +128,7 @@ client.on(Events.MessageCreate, async (message) => {
                     channelId = channelId.slice(2, -1);
 
                 const channelMentionLength = args[0] ? args[0].length : 0;
-                // Ajuste de offset
-                const offset = prefix.length + command.length + 1 + channelMentionLength + 1; 
+                const offset = prefix.length + command.length + 1 + channelMentionLength + 1;
                 const messageText = message.content.substring(offset).trim();
 
                 if (!channelId || !messageText)
@@ -183,19 +177,46 @@ client.on(Events.MessageCreate, async (message) => {
             case 'testwelcome':
             case 'testbye': {
                 const tipo = command === 'testwelcome' ? 'bienvenida' : 'despedida';
-                await enviarEmbed(message.member, tipo, message.channel); // AÑADIDO: await
+                enviarEmbed(message.member, tipo, message.channel);
                 break;
             }
 
             case 'showconfig':
-                // MODIFICADO: Muestra la configuración persistente
-                const welcomeConfig = await db.get('bienvenida') || configTemplates.bienvenida;
-                const goodbyeConfig = await db.get('despedida') || configTemplates.despedida;
-                
-                const response = { bienvenida: welcomeConfig, despedida: goodbyeConfig };
-
-                message.channel.send(`\`\`\`json\n${JSON.stringify(response, null, 2)}\n\`\`\``);
+                message.channel.send(`\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\``);
                 break;
+                
+            // ==================== NUEVO COMANDO !HELP ====================
+            case 'help': {
+                const embed = new EmbedBuilder()
+                    .setColor(0x0099FF)
+                    .setTitle('🐙 Comandos de Tako Bot')
+                    .setDescription(`Mi prefijo es: \`${prefix}\``)
+                    .addFields(
+                        { 
+                            name: '🛠️ Comandos de Administración (Requiere permisos)', 
+                            value: `
+                            \`${prefix}setwelcome #canal <JSON>\` - Configura el embed de bienvenida.
+                            \`${prefix}setbye #canal <JSON>\` - Configura el embed de despedida.
+                            \`${prefix}testwelcome\` - Prueba el embed de bienvenida en este canal.
+                            \`${prefix}testbye\` - Prueba el embed de despedida en este canal.
+                            \`${prefix}send #canal <mensaje/JSON>\` - Envía un mensaje o embed al canal.
+                            \`${prefix}showconfig\` - Muestra la configuración actual (temporal).
+                            `
+                        },
+                        {
+                            name: '✨ Comandos Generales',
+                            value: `
+                            \`${prefix}help\` - Muestra esta lista de comandos.
+                            `
+                        }
+                    )
+                    .setTimestamp()
+                    .setFooter({ text: 'Gracias por usar Tako!' });
+                    
+                message.channel.send({ embeds: [embed] });
+                break;
+            }
+            // =============================================================
         }
     } catch (err) {
         log(`Error en comando ${command}: ${err.message}`);
