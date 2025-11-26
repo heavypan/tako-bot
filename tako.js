@@ -1,51 +1,9 @@
 const { Client, GatewayIntentBits, Events, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 const express = require('express');
+const mongoose = require('mongoose'); // ¡NUEVO!
 require('dotenv').config();
 
-
-// ==================== BASE DE DATOS (Mongoose) ====================
-const mongoose = require('mongoose');
-
-// ** Conexión a MongoDB Atlas **
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => log('Conectado a MongoDB Atlas.'))
-  .catch(err => log(`Error de conexión a MongoDB: ${err.message}`));
-
-
-// ** Esquema y Modelo de Configuración **
-// Usaremos un único documento que guardará todas las configuraciones (welcome, bye, etc.)
-const configSchema = new mongoose.Schema({
-    _id: { type: String, default: 'botConfig' }, // Usamos un ID fijo para tener solo un documento
-    bienvenida: Object,
-    despedida: Object,
-    // Puedes añadir más configuraciones aquí
-}, { strict: false }); // 'strict: false' permite campos flexibles si los necesitas
-
-const ConfigModel = mongoose.model('Config', configSchema);
-
-// Función para cargar la configuración al iniciar el bot
-async function loadConfig() {
-    let savedConfig = await ConfigModel.findById('botConfig');
-    if (!savedConfig) {
-        log('No se encontró configuración previa. Creando nuevo documento.');
-        savedConfig = new ConfigModel({ _id: 'botConfig', bienvenida: null, despedida: null });
-        await savedConfig.save();
-    }
-    log('Configuración cargada desde MongoDB.');
-    // Devolvemos el objeto plano de la configuración
-    return savedConfig.toObject(); 
-}
-
-// Función para guardar una nueva configuración (bienvenida o despedida)
-async function saveConfig(key, value) {
-    // Usamos $set para actualizar solo el campo específico
-    await ConfigModel.findByIdAndUpdate('botConfig', { $set: { [key]: value } }, { new: true, upsert: true });
-    log(`Configuración de ${key} guardada en MongoDB.`);
-}
-
-// =======================================================================
-
-
+// ==================== FUNCIONES DE UTILIDAD ====================
 const TOKEN = process.env.DISCORD_TOKEN;
 const prefix = '!';
 
@@ -54,21 +12,56 @@ function log(msg) {
     console.log(`[${time}] ${msg}`);
 }
 
-let config = {};
-try {
-    if (process.env.BOT_CONFIG) {
-        config = JSON.parse(process.env.BOT_CONFIG);
-        log('Configuración cargada.');
-    } else {
-        config = {};
-        log('Iniciando configuración vacía.');
+let config = {}; // Variable global que contendrá la configuración cargada
+
+// ==================== BASE DE DATOS (Mongoose) ====================
+
+// ** Esquema y Modelo de Configuración **
+// Definimos la estructura para guardar la configuración en un único documento
+const configSchema = new mongoose.Schema({
+    _id: { type: String, default: 'botConfig' }, // ID fijo para el documento único
+    bienvenida: Object, // { canalId: '...', embedJson: { ... } }
+    despedida: Object,  // { canalId: '...', embedJson: { ... } }
+}, { strict: false }); 
+
+const ConfigModel = mongoose.model('Config', configSchema);
+
+// Función para cargar la configuración al iniciar el bot
+async function loadConfig() {
+    try {
+        let savedConfig = await ConfigModel.findById('botConfig');
+        if (!savedConfig) {
+            log('No se encontró configuración previa. Creando nuevo documento.');
+            // Creamos un documento inicial en la DB
+            savedConfig = new ConfigModel({ _id: 'botConfig', bienvenida: null, despedida: null });
+            await savedConfig.save();
+        }
+        log('Configuración cargada desde MongoDB.');
+        // Convertimos el documento de Mongoose a un objeto JavaScript simple
+        return savedConfig.toObject(); 
+    } catch (error) {
+        log(`ERROR al cargar la configuración de MongoDB: ${error.message}`);
+        return {}; // Devolver un objeto vacío para evitar errores
     }
-} catch (err) {
-    log(`Error al leer configuración: ${err.message}`);
-    config = {};
 }
 
-// ==================== FUNCIONES ====================
+// Función para guardar una nueva configuración (bienvenida o despedida)
+async function saveConfig(key, value) {
+    try {
+        // Busca por ID y actualiza el campo específico (key)
+        await ConfigModel.findByIdAndUpdate(
+            'botConfig', 
+            { $set: { [key]: value } }, 
+            { new: true, upsert: true } // new: devuelve el documento actualizado; upsert: si no existe, lo crea
+        );
+        log(`Configuración de ${key} guardada en MongoDB.`);
+    } catch (error) {
+        log(`ERROR al guardar la configuración de MongoDB: ${error.message}`);
+    }
+}
+
+// ==================== FUNCIONES DEL BOT ====================
+
 function checkPermissions(member) {
     return member.permissions.has([
         PermissionFlagsBits.Administrator,
@@ -79,7 +72,8 @@ function checkPermissions(member) {
 
 // Función para enviar embed dinámico reemplazando placeholders
 function enviarEmbed(member, tipo, testChannel = null) {
-    const settings = config[tipo];
+    // Leemos la configuración cargada en la variable global 'config'
+    const settings = config[tipo]; 
     if (!settings || !settings.embedJson) return;
 
     const targetChannel = testChannel || member.guild.channels.cache.get(settings.canalId);
@@ -109,6 +103,7 @@ const client = new Client({
     ],
 });
 
+// Evento cuando el cliente está listo
 client.once(Events.ClientReady, () => {
     log(`Bot iniciado como ${client.user.tag}`);
 });
@@ -156,93 +151,98 @@ client.on(Events.MessageCreate, async (message) => {
                     if (!parsed.embeds || !Array.isArray(parsed.embeds))
                         return message.reply('El JSON debe contener un array llamado "embeds".');
 
+                    // 1. Guardamos en la variable local (para usarla inmediatamente)
                     config[key] = { canalId: channelId, embedJson: parsed };
-                    message.reply(`${key} configurada correctamente.`);
+                    
+                    // 2. ¡GUARDAMOS DE FORMA PERSISTENTE EN MONGODB!
+                    await saveConfig(key, config[key]); 
+
+                    message.reply(`${key} configurada correctamente. **(Guardada persistentemente)**`);
                 } catch (error) {
-                    message.reply(`Error en el JSON: ${error.message}`);
+                    message.reply(`Error en el JSON o al guardar: ${error.message}`);
                 }
                 break;
             }
 
-        // ==================== COMANDO SEND (no tocado salvo lo necesario) ====================
-        case 'send': {
-            let channelId = args[0];
-
-            if (channelId?.startsWith('<') && channelId.endsWith('>')) {
-                channelId = channelId.replace(/[<#>]/g, '');
-            }
-
-            if (!channelId)
-                return message.reply(`Uso: !send canal mensaje_o_JSON`);
-
-            const targetChannel = message.guild.channels.cache.get(channelId);
-            if (!targetChannel)
-                return message.reply('Canal inválido.');
-
-            const messageText = message.content.split(/\s+/).slice(2).join(" ").trim();
-
-            if (!messageText && message.attachments.size === 0)
-                return message.reply(`Uso: !send canal mensaje_o_JSON`);
-
-            try {
-                let parsed = null;
-
+            // [ El resto de los comandos (send, testwelcome, testbye, showconfig, help) permanecen IGUAL ]
+            // ... (código para 'send', 'testwelcome', 'testbye', 'showconfig', 'help')
+            case 'send': {
+                let channelId = args[0];
+    
+                if (channelId?.startsWith('<') && channelId.endsWith('>')) {
+                    channelId = channelId.replace(/[<#>]/g, '');
+                }
+    
+                if (!channelId)
+                    return message.reply(`Uso: !send canal mensaje_o_JSON`);
+    
+                const targetChannel = message.guild.channels.cache.get(channelId);
+                if (!targetChannel)
+                    return message.reply('Canal inválido.');
+    
+                const messageText = message.content.split(/\s+/).slice(2).join(" ").trim();
+    
+                if (!messageText && message.attachments.size === 0)
+                    return message.reply(`Uso: !send canal mensaje_o_JSON`);
+    
                 try {
-                    const cleaned = messageText.replace(/```json|```/g, '').trim();
-                    parsed = JSON.parse(cleaned);
-                } catch {
-                    parsed = null;
-                }
-
-                let sendOptions = {};
-
-                if (message.attachments.size > 0) {
-                    sendOptions.files = [...message.attachments.values()].map(a => a.url);
-                }
-
-                if (parsed) {
-                    if (parsed.content) sendOptions.content = parsed.content;
-
-                    if (parsed.embeds && Array.isArray(parsed.embeds)) {
-                        sendOptions.embeds = parsed.embeds.map(e => EmbedBuilder.from(e));
+                    let parsed = null;
+    
+                    try {
+                        const cleaned = messageText.replace(/```json|```/g, '').trim();
+                        parsed = JSON.parse(cleaned);
+                    } catch {
+                        parsed = null;
                     }
-
-                    if (!parsed.content && !parsed.embeds)
-                        return message.reply('El JSON debe incluir "content" o "embeds".');
-
-                } else {
-                    sendOptions.content = messageText;
+    
+                    let sendOptions = {};
+    
+                    if (message.attachments.size > 0) {
+                        sendOptions.files = [...message.attachments.values()].map(a => a.url);
+                    }
+    
+                    if (parsed) {
+                        if (parsed.content) sendOptions.content = parsed.content;
+    
+                        if (parsed.embeds && Array.isArray(parsed.embeds)) {
+                            sendOptions.embeds = parsed.embeds.map(e => EmbedBuilder.from(e));
+                        }
+    
+                        if (!parsed.content && !parsed.embeds)
+                            return message.reply('El JSON debe incluir "content" o "embeds".');
+    
+                    } else {
+                        sendOptions.content = messageText;
+                    }
+    
+                    await targetChannel.send(sendOptions);
+                    message.react('✅');
+    
+                } catch (error) {
+                    message.reply(`Error al enviar: ${error.message}`);
                 }
-
-                await targetChannel.send(sendOptions);
-                message.react('✅');
-
-            } catch (error) {
-                message.reply(`Error al enviar: ${error.message}`);
+    
+                break;
             }
-
-            break;
-        }
-        // ================================================================================
-
             case 'testwelcome':
             case 'testbye': {
                 const tipo = command === 'testwelcome' ? 'bienvenida' : 'despedida';
                 enviarEmbed(message.member, tipo, message.channel);
                 break;
             }
-
+    
             case 'showconfig':
+                // Mostramos la configuración cargada desde la variable global 'config'
                 message.channel.send(`\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\``);
                 break;
-
+    
             case 'help': {
                 const embed = new EmbedBuilder()
                     .setColor(0x0099FF)
                     .setTitle('🐙 Comandos de Tako')
                     .setDescription(`Mi prefijo es: \`${prefix}\``)
                     .addFields(
-                        { 
+                        {   
                             name: 'Comandos de Admin', 
                             value: `
                             \`${prefix}setwelcome #canal <JSON>\`
@@ -272,11 +272,26 @@ client.on(Events.MessageCreate, async (message) => {
     }
 });
 
-// ==================== EXPRESS ====================
+
+// ==================== INICIALIZACIÓN Y EXPRESS ====================
+
+// 1. CONECTARSE A MONGODB Y CARGAR LA CONFIGURACIÓN
+mongoose.connect(process.env.MONGO_URI)
+  .then(async () => {
+    log('Conectado a MongoDB Atlas.');
+    
+    // Cargar la configuración antes de iniciar el cliente
+    const loadedConfig = await loadConfig();
+    config = loadedConfig; 
+
+    // 2. INICIAR EL CLIENTE DE DISCORD
+    client.login(TOKEN); 
+  })
+  .catch(err => log(`ERROR CRÍTICO: No se pudo conectar a MongoDB. El bot no puede iniciar. Detalle: ${err.message}`));
+
+
+// 3. SERVIDOR EXPRESS (para el 24/7 con UptimeRobot)
 const app = express();
 const port = process.env.PORT || 3000;
 app.get('/', (req, res) => res.status(200).send('Bot funcionando.'));
 app.listen(port, '0.0.0.0', () => log(`Web escuchando en puerto ${port}`));
-
-client.login(TOKEN);
-
