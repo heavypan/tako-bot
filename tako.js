@@ -3,34 +3,46 @@ const express = require('express');
 require('dotenv').config();
 
 
-// ==================== BASE DE DATOS  ====================
-const Database = require("better-sqlite3");
-const db = new Database("database.sqlite");
+// ==================== BASE DE DATOS (Mongoose) ====================
+const mongoose = require('mongoose');
 
-// Crear tabla si no existe
-db.prepare(`
-    CREATE TABLE IF NOT EXISTS data (
-        key TEXT PRIMARY KEY,
-        value TEXT
-    )
-`).run();
+// ** Conexión a MongoDB Atlas **
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => log('Conectado a MongoDB Atlas.'))
+  .catch(err => log(`Error de conexión a MongoDB: ${err.message}`));
 
-// Funciones 
-function dbGet(key) {
-    const row = db.prepare("SELECT value FROM data WHERE key = ?").get(key);
-    return row ? JSON.parse(row.value) : null;
+
+// ** Esquema y Modelo de Configuración **
+// Usaremos un único documento que guardará todas las configuraciones (welcome, bye, etc.)
+const configSchema = new mongoose.Schema({
+    _id: { type: String, default: 'botConfig' }, // Usamos un ID fijo para tener solo un documento
+    bienvenida: Object,
+    despedida: Object,
+    // Puedes añadir más configuraciones aquí
+}, { strict: false }); // 'strict: false' permite campos flexibles si los necesitas
+
+const ConfigModel = mongoose.model('Config', configSchema);
+
+// Función para cargar la configuración al iniciar el bot
+async function loadConfig() {
+    let savedConfig = await ConfigModel.findById('botConfig');
+    if (!savedConfig) {
+        log('No se encontró configuración previa. Creando nuevo documento.');
+        savedConfig = new ConfigModel({ _id: 'botConfig', bienvenida: null, despedida: null });
+        await savedConfig.save();
+    }
+    log('Configuración cargada desde MongoDB.');
+    // Devolvemos el objeto plano de la configuración
+    return savedConfig.toObject(); 
 }
 
-function dbSet(key, value) {
-    db.prepare("INSERT OR REPLACE INTO data (key, value) VALUES (?, ?)").run(
-        key,
-        JSON.stringify(value)
-    );
+// Función para guardar una nueva configuración (bienvenida o despedida)
+async function saveConfig(key, value) {
+    // Usamos $set para actualizar solo el campo específico
+    await ConfigModel.findByIdAndUpdate('botConfig', { $set: { [key]: value } }, { new: true, upsert: true });
+    log(`Configuración de ${key} guardada en MongoDB.`);
 }
 
-function dbDelete(key) {
-    db.prepare("DELETE FROM data WHERE key = ?").run(key);
-}
 // =======================================================================
 
 
@@ -267,3 +279,4 @@ app.get('/', (req, res) => res.status(200).send('Bot funcionando.'));
 app.listen(port, '0.0.0.0', () => log(`Web escuchando en puerto ${port}`));
 
 client.login(TOKEN);
+
