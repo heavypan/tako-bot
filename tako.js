@@ -1,6 +1,6 @@
 const { Client, GatewayIntentBits, Events, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 const express = require('express');
-const mongoose = require('mongoose'); // ¡NUEVO!
+const mongoose = require('mongoose'); 
 require('dotenv').config();
 
 // ==================== FUNCIONES DE UTILIDAD ====================
@@ -12,14 +12,12 @@ function log(msg) {
     console.log(`[${time}] ${msg}`);
 }
 
-let config = {}; // Variable global que contendrá la configuración cargada
+let config = {};
 
-// ==================== BASE DE DATOS (Mongoose) ====================
+// ==================== BASE DE DATOS ====================
 
-// ** Esquema y Modelo de Configuración **
-// Definimos la estructura para guardar la configuración en un único documento
 const configSchema = new mongoose.Schema({
-    _id: { type: String, default: 'botConfig' }, // ID fijo para el documento único
+    _id: { type: String, default: 'botConfig' }, // ID 
     bienvenida: Object, // { canalId: '...', embedJson: { ... } }
     despedida: Object,  // { canalId: '...', embedJson: { ... } }
 }, { strict: false }); 
@@ -32,27 +30,24 @@ async function loadConfig() {
         let savedConfig = await ConfigModel.findById('botConfig');
         if (!savedConfig) {
             log('No se encontró configuración previa. Creando nuevo documento.');
-            // Creamos un documento inicial en la DB
             savedConfig = new ConfigModel({ _id: 'botConfig', bienvenida: null, despedida: null });
             await savedConfig.save();
         }
         log('Configuración cargada desde MongoDB.');
-        // Convertimos el documento de Mongoose a un objeto JavaScript simple
         return savedConfig.toObject(); 
     } catch (error) {
         log(`ERROR al cargar la configuración de MongoDB: ${error.message}`);
-        return {}; // Devolver un objeto vacío para evitar errores
+        return {}; 
     }
 }
 
 // Función para guardar una nueva configuración (bienvenida o despedida)
 async function saveConfig(key, value) {
     try {
-        // Busca por ID y actualiza el campo específico (key)
         await ConfigModel.findByIdAndUpdate(
             'botConfig', 
             { $set: { [key]: value } }, 
-            { new: true, upsert: true } // new: devuelve el documento actualizado; upsert: si no existe, lo crea
+            { new: true, upsert: true } 
         );
         log(`Configuración de ${key} guardada en MongoDB.`);
     } catch (error) {
@@ -72,7 +67,6 @@ function checkPermissions(member) {
 
 // Función para enviar embed dinámico reemplazando placeholders
 function enviarEmbed(member, tipo, testChannel = null) {
-    // Leemos la configuración cargada en la variable global 'config'
     const settings = config[tipo]; 
     if (!settings || !settings.embedJson) return;
 
@@ -151,10 +145,10 @@ client.on(Events.MessageCreate, async (message) => {
                     if (!parsed.embeds || !Array.isArray(parsed.embeds))
                         return message.reply('El JSON debe contener un array llamado "embeds".');
 
-                    // 1. Guardamos en la variable local (para usarla inmediatamente)
+                    // 1. Guardamos en la variable local 
                     config[key] = { canalId: channelId, embedJson: parsed };
                     
-                    // 2. ¡GUARDAMOS DE FORMA PERSISTENTE EN MONGODB!
+                    // 2. Guardar En MongoDB
                     await saveConfig(key, config[key]); 
 
                     message.reply(`${key} configurada correctamente. **(Guardada persistentemente)**`);
@@ -164,7 +158,7 @@ client.on(Events.MessageCreate, async (message) => {
                 break;
             }
 
-            // [ El resto de los comandos (send, testwelcome, testbye, showconfig, help) permanecen IGUAL ]
+            // [ El resto de los comandos (send, testwelcome, testbye, showconfig, help) ]
             // ... (código para 'send', 'testwelcome', 'testbye', 'showconfig', 'help')
             case 'send': {
                 let channelId = args[0];
@@ -290,8 +284,9 @@ mongoose.connect(process.env.MONGO_URI)
   .catch(err => log(`ERROR CRÍTICO: No se pudo conectar a MongoDB. El bot no puede iniciar. Detalle: ${err.message}`));
 
 
-// 3. SERVIDOR EXPRESS (para el 24/7 con UptimeRobot)
+// 3. SERVIDOR EXPRESS
 const app = express();
 const port = process.env.PORT || 3000;
 app.get('/', (req, res) => res.status(200).send('Bot funcionando.'));
 app.listen(port, '0.0.0.0', () => log(`Web escuchando en puerto ${port}`));
+
